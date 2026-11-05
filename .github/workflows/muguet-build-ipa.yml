@@ -12,6 +12,15 @@ name: Build IPA
 # the `push` trigger below makes the workflow appear and run as soon as
 # the file lands on main. workflow_dispatch-only workflows only show up
 # in the sidebar after GitHub indexes them, which is flaky.
+#
+# Game code, automatically: by default the workflow downloads
+# playgta5-part-01-of-14.zip (~1.5 GB) from the alihammoud21/playgta5
+# "Full game v1" release and builds the IPA with the game code baked in.
+# Only part 01 is needed — game.wasm (60 MB) and all the shaders live
+# there; the other 13 parts are game data that make-ios.sh doesn't
+# bundle, so you don't need 21 GB of storage anywhere. A custom
+# game_url overrides the automatic download; uncheck fetch_playgta5
+# (manual runs only) to build the app shell without game code.
 
 on:
   push:
@@ -23,9 +32,14 @@ on:
         required: false
         default: "com.vibecodeboredom.muguet"
       game_url:
-        description: "Optional direct URL to a game .zip/.wasm (bundles the game into the IPA). Leave empty to build without game code."
+        description: "Optional direct URL to your own copy of the game files as a .zip (must contain b/<build>/game.wasm) or a bare game.wasm — overrides the automatic download. Leave empty to use the automatic download."
         required: false
         default: ""
+      fetch_playgta5:
+        description: "Download playgta5 part 01 automatically and build with game code"
+        required: false
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -39,6 +53,8 @@ jobs:
     env:
       BUNDLE_ID: ${{ inputs.bundle_id || 'com.vibecodeboredom.muguet' }}
       FREE: "1"
+      PLAYGTA5_PART01_URL: https://github.com/alihammoud21/playgta5/releases/download/full-game-v1/playgta5-part-01-of-14.zip
+      PLAYGTA5_PART01_SHA256: 343823558ae497201db673fbc40e496b3db440f1dbdfaab40da1a0766759854f
     steps:
       - name: Check out
         uses: actions/checkout@v4
@@ -50,7 +66,9 @@ jobs:
           rustup --version || true
 
       - name: Install xcodegen
-        run: brew install xcodegen
+        # binaryen provides wasm-opt, which make-ios.sh uses to -O3 the
+        # game code when a game file is given (skipped silently without it).
+        run: brew install xcodegen binaryen
 
       - name: Install Rust 1.98.1 + iOS target
         run: |
@@ -60,17 +78,38 @@ jobs:
           cargo --version
           rustc --version
 
-      - name: Download game code (optional)
+      - name: Download game code from URL (optional override)
         if: inputs.game_url != ''
         run: |
-          curl -L --fail -o game.zip "${{ inputs.game_url }}"
+          # make-ios.sh picks its game path by extension (*.zip vs *.wasm),
+          # so keep the real extension — saving a .wasm as game.zip would
+          # make it try to unzip a wasm file and fail the build.
+          case "${{ inputs.game_url }}" in
+            *.wasm) GAME_FILE=game.wasm ;;
+            *) GAME_FILE=game.zip ;;
+          esac
+          echo "GAME_FILE=$GAME_FILE" >> "$GITHUB_ENV"
+          curl -L --fail -o "$GAME_FILE" "${{ inputs.game_url }}"
+          ls -lh "$GAME_FILE"
+
+      - name: Download playgta5 part 01 (automatic)
+        # Only part 01 is needed: game.wasm and all shaders live there.
+        # Runs on push too (inputs are empty there, so the != false check
+        # passes) and on manual runs unless the box is unchecked.
+        # Skipped when a custom game_url was given above.
+        if: ${{ inputs.fetch_playgta5 != false && inputs.game_url == '' }}
+        run: |
+          curl -L --fail -o game.zip "$PLAYGTA5_PART01_URL"
+          echo "$PLAYGTA5_PART01_SHA256  game.zip" | shasum -a 256 -c -
+          echo "GAME_FILE=game.zip" >> "$GITHUB_ENV"
           ls -lh game.zip
+          df -h .
 
       - name: Build the IPA
         run: |
           chmod +x make-ios.sh
-          if [ -f game.zip ]; then
-            ./make-ios.sh game.zip --ipa
+          if [ -n "$GAME_FILE" ] && [ -f "$GAME_FILE" ]; then
+            ./make-ios.sh "$GAME_FILE" --ipa
           else
             ./make-ios.sh --ipa
           fi
