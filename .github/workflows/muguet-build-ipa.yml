@@ -1,0 +1,85 @@
+name: Build IPA
+
+# Builds an unsigned (sideloadable) Muguet IPA with the upstream
+# make-ios.sh script. Put this file in .github/workflows/ and run it
+# from the Actions sidebar, or let it run on every push to main.
+#
+# Needs no Apple Developer account and no signing identity:
+#   FREE=1 + --ipa  =>  sideload entitlements, ad-hoc codesign, no TEAM.
+# Output: build/Muguet.ipa, uploaded as the "Muguet-IPA" artifact.
+#
+# Why this one shows up in Actions (last time's didn't):
+# the `push` trigger below makes the workflow appear and run as soon as
+# the file lands on main. workflow_dispatch-only workflows only show up
+# in the sidebar after GitHub indexes them, which is flaky.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      bundle_id:
+        description: "iOS bundle identifier for the IPA"
+        required: false
+        default: "com.vibecodeboredom.muguet"
+      game_url:
+        description: "Optional direct URL to a game .zip/.wasm (bundles the game into the IPA). Leave empty to build without game code."
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+run-name: Build IPA (${{ inputs.bundle_id || 'com.vibecodeboredom.muguet' }})
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 90
+    env:
+      BUNDLE_ID: ${{ inputs.bundle_id || 'com.vibecodeboredom.muguet' }}
+      FREE: "1"
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Show tool versions
+        run: |
+          sw_vers
+          xcodebuild -version
+          rustup --version || true
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      - name: Install Rust 1.98.1 + iOS target
+        run: |
+          rustup toolchain install 1.98.1
+          rustup default 1.98.1
+          rustup target add aarch64-apple-ios
+          cargo --version
+          rustc --version
+
+      - name: Download game code (optional)
+        if: inputs.game_url != ''
+        run: |
+          curl -L --fail -o game.zip "${{ inputs.game_url }}"
+          ls -lh game.zip
+
+      - name: Build the IPA
+        run: |
+          chmod +x make-ios.sh
+          if [ -f game.zip ]; then
+            ./make-ios.sh game.zip --ipa
+          else
+            ./make-ios.sh --ipa
+          fi
+          ls -lh build/Muguet.ipa
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Muguet-IPA
+          path: build/Muguet.ipa
+          if-no-files-found: error
+          retention-days: 30
