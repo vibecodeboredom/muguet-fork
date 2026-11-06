@@ -36,6 +36,12 @@ name: Build IPA
 # and the download step never ran. The conditions below now also accept
 # null (`... || inputs.game_url == null`), so push builds fetch the
 # game code like manual runs do.
+#
+# v4 (2026-11-06): v3 STILL skipped the download (run 42311982663,
+# shell again, 2.1M) — because null == false in GitHub expressions,
+# `inputs.fetch_playgta5 != false` is false on push too. Never compare
+# a maybe-null input to false; the fetch condition now keys off the
+# event name instead.
 
 on:
   push:
@@ -113,9 +119,11 @@ jobs:
         # Only part 01 is needed: game.wasm and all shaders live there.
         # Runs on push AND on manual runs unless the box is unchecked.
         # Skipped when a custom game_url was given above.
-        # The `== null` arms are the v3 fix: on push, inputs.* are null
-        # and null == '' is false, which used to skip this whole step.
-        if: ${{ inputs.fetch_playgta5 != false && (inputs.game_url == '' || inputs.game_url == null) }}
+        # v4: the push case is keyed off the event name, NOT off the
+        # input — on push the input is null, and null == false in
+        # GitHub expressions, so `inputs.fetch_playgta5 != false`
+        # was false and v3 skipped this step too (run 42311982663).
+        if: ${{ (github.event_name == 'push' || inputs.fetch_playgta5 == true) && (inputs.game_url == '' || inputs.game_url == null) }}
         run: |
           curl -L --fail -o game.zip "$PLAYGTA5_PART01_URL"
           echo "$PLAYGTA5_PART01_SHA256  game.zip" | shasum -a 256 -c -
