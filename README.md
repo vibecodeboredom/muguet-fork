@@ -1,4 +1,6 @@
 # Muguet
+> ⚠️ **Vibecoder workflow release:** the iOS IPA for this fork is built by a vibe-coded GitHub Actions workflow (`.github/workflows/muguet-build-ipa.yml`), not by the upstream Muguet project. Every push to main builds a new IPA and publishes it to this repo's Releases. Provided as-is — install at your own risk.
+
 A native Mach-O iOS/macOS port of GTA V, with multiplayer
 
 ## How does this work ?

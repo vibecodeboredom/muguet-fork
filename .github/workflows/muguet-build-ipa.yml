@@ -63,7 +63,8 @@ on:
         default: true
 
 permissions:
-  contents: read
+  # write is needed for the release step below (it only runs on main).
+  contents: write
 
 run-name: Build IPA (${{ inputs.bundle_id || 'com.vibecodeboredom.muguet' }})
 
@@ -148,3 +149,29 @@ jobs:
           path: build/Muguet.ipa
           if-no-files-found: error
           retention-days: 30
+
+      - name: Publish IPA to GitHub Release (main only)
+        # Main branch only: PR-branch runs never create releases.
+        # The release step lives only on main's copy of this file, not
+        # on any pull-request branch.
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: muguet-ipa-build-${{ github.run_number }}
+          name: Muguet IPA — build ${{ github.run_number }}
+          body: |
+            ## Muguet IPA — build ${{ github.run_number }}
+
+            Built with game code baked in (playgta5 part 01) by the Build IPA workflow on main.
+
+            ### Changes in this release
+            - v3 fix: the game-code download no longer skips on push builds — merge builds now actually include the code instead of silently shipping the shell.
+            - This IPA is now published to Releases automatically from main-branch builds.
+
+            ### Install
+            Download Muguet.ipa below and sideload with AltStore. Then import your game data zip in the app ("Import game data .zip") — the IPA has the engine/code only, not the game data.
+
+            ### ⚠️ Vibecoder workflow release
+            This release was built by a vibe-coded GitHub Actions workflow in this fork — it is NOT an official Muguet release. Provided as-is; install at your own risk.
+          files: build/Muguet.ipa
+          fail_on_unmatched_files: true
