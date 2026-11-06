@@ -21,6 +21,21 @@ name: Build IPA
 # bundle, so you don't need 21 GB of storage anywhere. A custom
 # game_url overrides the automatic download; uncheck fetch_playgta5
 # (manual runs only) to build the app shell without game code.
+#
+# NOTE on the game source: a 21 GB full-game zip (e.g. a file host link)
+# can NOT be the build input — the macOS runner only has ~13 GB free,
+# and file hosts usually block automated downloads anyway. The build
+# only ever needs game.wasm, which is inside part 01. The full game
+# files are for the in-app data import on the phone, not the build.
+#
+# BUG FIX (v3, 2026-11-06): the v2 merge build (run 42088556746) went
+# green but silently built the SHELL — its log says "no game zip given".
+# Cause: on push events every `inputs.*` is null, and in GitHub
+# expressions null == '' is FALSE, so the old fetch condition
+# `inputs.fetch_playgta5 != false && inputs.game_url == ''` was false
+# and the download step never ran. The conditions below now also accept
+# null (`... || inputs.game_url == null`), so push builds fetch the
+# game code like manual runs do.
 
 on:
   push:
@@ -79,7 +94,9 @@ jobs:
           rustc --version
 
       - name: Download game code from URL (optional override)
-        if: inputs.game_url != ''
+        # inputs.game_url is null on push events (not ''), so the
+        # `!= null` arm keeps this step skipped there.
+        if: ${{ inputs.game_url != '' && inputs.game_url != null }}
         run: |
           # make-ios.sh picks its game path by extension (*.zip vs *.wasm),
           # so keep the real extension — saving a .wasm as game.zip would
@@ -94,10 +111,11 @@ jobs:
 
       - name: Download playgta5 part 01 (automatic)
         # Only part 01 is needed: game.wasm and all shaders live there.
-        # Runs on push too (inputs are empty there, so the != false check
-        # passes) and on manual runs unless the box is unchecked.
+        # Runs on push AND on manual runs unless the box is unchecked.
         # Skipped when a custom game_url was given above.
-        if: ${{ inputs.fetch_playgta5 != false && inputs.game_url == '' }}
+        # The `== null` arms are the v3 fix: on push, inputs.* are null
+        # and null == '' is false, which used to skip this whole step.
+        if: ${{ inputs.fetch_playgta5 != false && (inputs.game_url == '' || inputs.game_url == null) }}
         run: |
           curl -L --fail -o game.zip "$PLAYGTA5_PART01_URL"
           echo "$PLAYGTA5_PART01_SHA256  game.zip" | shasum -a 256 -c -
